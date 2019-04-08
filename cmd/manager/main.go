@@ -23,7 +23,7 @@ import (
 	"github.com/davidewatson/cluster-api-webhooks-maas/pkg/apis"
 	"github.com/davidewatson/cluster-api-webhooks-maas/pkg/controller"
 	"github.com/davidewatson/cluster-api-webhooks-maas/pkg/webhook"
-	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	clusterapis "sigs.k8s.io/cluster-api/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
@@ -59,6 +59,11 @@ func main() {
 	log.Info("setting up scheme")
 	if err := apis.AddToScheme(mgr.GetScheme()); err != nil {
 		log.Error(err, "unable add APIs to scheme")
+		os.Exit(1)
+	}
+
+	if err := clusterapis.AddToScheme(mgr.GetScheme()); err != nil {
+		log.Error(err, "unable add Cluster APIs to scheme")
 		os.Exit(1)
 	}
 
