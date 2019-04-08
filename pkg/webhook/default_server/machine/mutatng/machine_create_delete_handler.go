@@ -20,7 +20,7 @@ import (
 	"context"
 	"net/http"
 
-	genericv1alpha1 "github.com/davidewatson/cluster-api-webhooks-maas/pkg/apis/generic/v1alpha1"
+	clusterv1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/inject"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission/types"
@@ -46,7 +46,7 @@ type MachineCreateDeleteHandler struct {
 	Decoder types.Decoder
 }
 
-func (h *MachineCreateDeleteHandler) mutatngMachineFn(ctx context.Context, obj *genericv1alpha1.Machine) (bool, string, error) {
+func (h *MachineCreateDeleteHandler) mutatngMachineFn(ctx context.Context, obj *clusterv1.Machine) (bool, string, error) {
 	// TODO(user): implement your admission logic
 	return true, "allowed to be admitted", nil
 }
@@ -55,7 +55,7 @@ var _ admission.Handler = &MachineCreateDeleteHandler{}
 
 // Handle handles admission requests.
 func (h *MachineCreateDeleteHandler) Handle(ctx context.Context, req types.Request) types.Response {
-	obj := &genericv1alpha1.Machine{}
+	obj := &clusterv1.Machine{}
 
 	err := h.Decoder.Decode(req, obj)
 	if err != nil {

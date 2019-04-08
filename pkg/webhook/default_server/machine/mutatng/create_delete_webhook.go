@@ -17,8 +17,8 @@ limitations under the License.
 package mutatng
 
 import (
-	genericv1alpha1 "github.com/davidewatson/cluster-api-webhooks-maas/pkg/apis/generic/v1alpha1"
 	admissionregistrationv1beta1 "k8s.io/api/admissionregistration/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission/builder"
 )
 
@@ -31,5 +31,5 @@ func init() {
 		Validating().
 		Operations(admissionregistrationv1beta1.Create, admissionregistrationv1beta1.Delete).
 		FailurePolicy(admissionregistrationv1beta1.Fail).
-		ForType(&genericv1alpha1.Machine{})
+		ForType(&clusterv1.Machine{})
 }
