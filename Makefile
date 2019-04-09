@@ -12,6 +12,9 @@ test: generate fmt vet manifests
 manager: generate fmt vet
 	go build -o bin/manager github.com/davidewatson/cluster-api-webhooks-maas/cmd/manager
 
+maascli: generate fmt vet
+	go build -o bin/maascli github.com/davidewatson/cluster-api-webhooks-maas/cmd/maascli
+
 # Run against the configured Kubernetes cluster in ~/.kube/config
 run: generate fmt vet
 	go run ./cmd/manager/main.go
