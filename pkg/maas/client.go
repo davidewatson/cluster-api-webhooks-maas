@@ -17,7 +17,7 @@ type Client struct {
 	Controller gomaasapi.Controller
 }
 
-func NewClient(apiURL, apiVersion, apiKey string) (Client, error) {
+func New(apiURL, apiVersion, apiKey string) (Client, error) {
 	controller, err := gomaasapi.NewController(gomaasapi.ControllerArgs{
 		BaseURL: apiURL,
 		APIKey:  apiKey})

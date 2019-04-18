@@ -34,7 +34,7 @@ func main() {
 
 	fmt.Printf("%s: %s\n%s: %s\n%s: %s\n", apiUrlKey, apiUrl, apiVersionKey, apiVersion, apiKeyKey, apiKey)
 
-	_, err := maas.NewClient(apiUrl, apiVersion, apiKey)
+	_, err := maas.New(apiUrl, apiVersion, apiKey)
 	if err != nil {
 		klog.Fatalf("failed to create MAAS client: %v\n", err)
 	}
