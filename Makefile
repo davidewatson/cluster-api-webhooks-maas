@@ -2,7 +2,7 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
 
-all: test manager
+all: test manager maascli
 
 # Run tests
 test: generate fmt vet manifests
