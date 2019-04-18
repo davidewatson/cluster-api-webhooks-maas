@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	MAASMachineTag = "cluster.k8s.io/maas=" // Indicates a machine MAY be allocated if it has not been already
+	ClusterAPIMachineIDAnnotationKey = "cluster.k8s.io/providerID" // Indicates a machine has been allocated
 )
 
 type Client struct {
@@ -30,14 +30,14 @@ func New(apiURL, apiVersion, apiKey string) (Client, error) {
 
 // Create creates a machine
 func (c Client) Create(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) error {
-	allocateArgs := gomaasapi.AllocateMachineArgs{Tags: []string{MAASMachineTag + cluster.Namespace}}
+	allocateArgs := gomaasapi.AllocateMachineArgs{Tags: []string{}}
 	m, _, err := c.Controller.AllocateMachine(allocateArgs)
 	if err != nil {
 		return fmt.Errorf("error allocating machine: %v", err)
 	}
 
 	startArgs := gomaasapi.StartArgs{
-		UserData:     "", // TODO(dwat): Use the Machine resource to set these?
+		UserData:     "",
 		DistroSeries: "",
 		Kernel:       "",
 		Comment:      "",
@@ -63,7 +63,7 @@ func (c Client) Update(ctx context.Context, cluster *clusterv1.Cluster, machine 
 // Exists test for the existence of a machine
 func (c Client) Exist(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) (bool, error) {
 	// Get list of machines with tag
-	machineArgs := gomaasapi.MachinesArgs{Hostnames: []string{MAASMachineTag + cluster.Namespace}}
+	machineArgs := gomaasapi.MachinesArgs{SystemIDs: []string{*machine.Spec.ProviderID}}
 	machines, err := c.Controller.Machines(machineArgs)
 	if err != nil {
 		return false, fmt.Errorf("error listing machines: %v", err)
