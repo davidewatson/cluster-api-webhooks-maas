@@ -1,10 +1,27 @@
+/*
+Copyright 2019 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package maas
 
 import (
 	"context"
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	//metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog"
 	clusterv1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 	clusterv1client "sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset/typed/cluster/v1alpha1"
 
@@ -41,12 +58,35 @@ func New(params *ClientParams) (Client, error) {
 
 // Create creates a machine
 func (c Client) Create(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) error {
+	klog.Infof("Creating machine %s", machine.Name)
+
+	// Allocate MAAS machine
 	allocateArgs := gomaasapi.AllocateMachineArgs{Tags: []string{}}
 	m, _, err := c.Controller.AllocateMachine(allocateArgs)
 	if err != nil {
-		return fmt.Errorf("error allocating machine: %v", err)
+		klog.Info("Create failed to allocate machine")
+		return fmt.Errorf("error allocating machine %s: %v", machine.Name, err)
 	}
 
+	// Update annotations on CAPI machine
+	providerID := m.SystemID()
+	machine.Spec.ProviderID = &providerID
+	machine, err = c.V1Alpha1Client.Machines(machine.Namespace).Update(machine)
+	if err != nil {
+		klog.Warningf("Create failed to annotate machine %s (%s): %v", machine.Name, providerID, err)
+
+		// Release MAAS machine
+		releaseArgs := gomaasapi.ReleaseMachinesArgs{SystemIDs: []string{providerID}}
+		if releaseErr := c.Controller.ReleaseMachines(releaseArgs); releaseErr != nil {
+			klog.Warningf("Create failed to release machine %s (%s): %v", machine.Name, providerID, err)
+		}
+
+		return nil
+	}
+
+	// TODO: Tag MAAS machine
+
+	// Deploy MAAS machine
 	startArgs := gomaasapi.StartArgs{
 		UserData:     "",
 		DistroSeries: "",
@@ -55,27 +95,28 @@ func (c Client) Create(ctx context.Context, cluster *clusterv1.Cluster, machine 
 	}
 	err = m.Start(startArgs)
 	if err != nil {
-		return fmt.Errorf("error deploying machine (%s): %v", machine.Name, err)
+		klog.Infof("Create failed to deploy machine %s", machine.Name)
+		return nil
 	}
 
-	// TODO: Remove this?
-	machine, err = c.V1Alpha1Client.Machines(machine.Namespace).Get(machine.ObjectMeta.Name, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-
-	providerID := m.SystemID()
-	machine.Spec.ProviderID = &providerID
-	machine, err = c.V1Alpha1Client.Machines(machine.Namespace).Update(machine)
-	if err != nil {
-		return fmt.Errorf("error tagging machine (%s) with tag (%s): %v", machine.Name, providerID, err)
-	}
-
+	klog.Infof("Created machine %s (%s)", machine.Name, providerID)
 	return nil
 }
 
 // Delete deletes a machine
 func (c Client) Delete(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) error {
+	if machine.Spec.ProviderID == nil {
+		klog.Warningf("can not delete  machine %s, providerID not set", machine.Name)
+		return fmt.Errorf("machine %s has not been created", machine.Name)
+	}
+
+	// Release MAAS machine
+	releaseArgs := gomaasapi.ReleaseMachinesArgs{SystemIDs: []string{*machine.Spec.ProviderID}}
+	if err := c.Controller.ReleaseMachines(releaseArgs); err != nil {
+		klog.Warningf("error releasing machine %s (%s): %v", machine.Name, *machine.Spec.ProviderID, err)
+		return nil
+	}
+
 	return nil
 }
 
@@ -86,14 +127,19 @@ func (c Client) Update(ctx context.Context, cluster *clusterv1.Cluster, machine 
 
 // Exists test for the existence of a machine
 func (c Client) Exist(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) (bool, error) {
+	// ProviderID will be nil until Create completes successfully
+	if machine.Spec.ProviderID == nil {
+		return false, nil
+	}
+
 	// Get list of machines with tag
 	machineArgs := gomaasapi.MachinesArgs{SystemIDs: []string{*machine.Spec.ProviderID}}
 	machines, err := c.Controller.Machines(machineArgs)
 	if err != nil {
-		return false, fmt.Errorf("error listing machines: %v", err)
+		return false, fmt.Errorf("error listing machine %s (%s): %v", machine.Name, *machine.Spec.ProviderID, err)
 	}
 	if len(machines) != 1 {
-		return false, fmt.Errorf("expected 1 machine (%s), found %d", machine.Name, len(machines))
+		return false, fmt.Errorf("expected 1 machine %s (%s), found %d", machine.Name, *machine.Spec.ProviderID, len(machines))
 	}
 
 	return true, nil
