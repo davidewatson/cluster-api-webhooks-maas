@@ -1,7 +1,7 @@
 
 # MAAS
 
-Metal As A Service (MAAS) allows pbysical and virtual machines to be managed
+Metal As A Service (MAAS) allows physical and virtual machines to be managed
 using an API.
 
 MAAS supports a number of management controllers, for example, IPMI, HMC, 
