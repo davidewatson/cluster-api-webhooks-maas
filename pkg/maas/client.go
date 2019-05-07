@@ -4,20 +4,16 @@ import (
 	"context"
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/cattlek8s/cluster-api-provider-generic/pkg/apis/generic/v1alpha1"
+	"k8s.io/klog"
 	clusterv1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
 	clusterv1client "sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset/typed/cluster/v1alpha1"
 
 	"github.com/juju/gomaasapi"
 )
 
-const (
-	ClusterAPIMachineIDAnnotationKey = "cluster.k8s.io/providerID" // Indicates a machine has been allocated
-)
-
 type Client struct {
-	Controller     gomaasapi.Controller
-	V1Alpha1Client clusterv1client.ClusterV1alpha1Interface
+	Controller gomaasapi.Controller
 }
 
 type ClientParams struct {
@@ -35,47 +31,87 @@ func New(params *ClientParams) (Client, error) {
 		return Client{}, fmt.Errorf("error creating controller with version: %v", err)
 	}
 
-	return Client{Controller: controller,
-		V1Alpha1Client: params.V1Alpha1Client}, nil
+	return Client{Controller: controller}, nil
 }
 
 // Create creates a machine
-func (c Client) Create(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) error {
+func (c Client) Create(ctx context.Context, request *v1alpha1.MachineCreateRequest) (*v1alpha1.MachineCreateResponse, error) {
+	klog.Infof("Creating machine %s", request.MachineID)
+
+	// Allocate MAAS machine
 	allocateArgs := gomaasapi.AllocateMachineArgs{Tags: []string{}}
 	m, _, err := c.Controller.AllocateMachine(allocateArgs)
 	if err != nil {
-		return fmt.Errorf("error allocating machine: %v", err)
+		klog.Errorf("Create failed to allocate machine %s: %v", request.MachineID, err)
+		return nil, fmt.Errorf("error allocating machine %s: %v", request.MachineID, err)
 	}
 
+	// Deploy MAAS machine
 	startArgs := gomaasapi.StartArgs{
-		UserData:     "",
-		DistroSeries: "",
-		Kernel:       "",
-		Comment:      "",
+		DistroSeries: "ubuntu-18.04-cnct-k8s-master", // TODO: Must depend on k8s version?
 	}
 	err = m.Start(startArgs)
-	if err != nil {
-		return fmt.Errorf("error deploying machine (%s): %v", machine.Name, err)
-	}
 
-	// TODO: Remove this?
-	machine, err = c.V1Alpha1Client.Machines(machine.Namespace).Get(machine.ObjectMeta.Name, metav1.GetOptions{})
+	// Release if there are any errors...
 	if err != nil {
-		return err
+		klog.Errorf("Create failed to deploy machine %s: %v", request.MachineID, err)
+
+		err := c.Delete(ctx, &DeleteRequest{MachineID: request.MachineID, ProviderID: m.SystemID()})
+		if err != nil {
+			klog.Errorf("Create failed to release machine %s: %v", request.MachineID, err)
+		}
+
+		return nil, err
 	}
 
 	providerID := m.SystemID()
-	machine.Spec.ProviderID = &providerID
-	machine, err = c.V1Alpha1Client.Machines(machine.Namespace).Update(machine)
-	if err != nil {
-		return fmt.Errorf("error tagging machine (%s) with tag (%s): %v", machine.Name, providerID, err)
+	ipAddresses := m.IPAddresses()
+
+	if len(ipAddresses) < 1 {
+		klog.Errorf("Create failed to deploy machine %s: %v", request.MachineID, err)
+
+		err := c.Delete(ctx, &DeleteRequest{MachineID: request.MachineID,
+			ProviderID: providerID})
+		if err != nil {
+			klog.Errorf("Create failed to release machine %s: %v", request.MachineID, err)
+		}
+
+		return nil, err
 	}
 
-	return nil
+	// Success
+	klog.Infof("Created machine %s with IP address %s", providerID, ipAddresses[0])
+
+	return &v1alpha1.MachineCreateResponse{
+		ProviderID: &providerID,
+		IPAddress:  ipAddresses[0],
+	}, nil
+}
+
+type DeleteRequest struct {
+	// MachineID is the unique value passed in CreateRequest.
+	MachineID string
+	// SystemID is the unique value passed in CreateResponse.
+	ProviderID string
+}
+
+type DeleteResponse struct {
 }
 
 // Delete deletes a machine
-func (c Client) Delete(ctx context.Context, cluster *clusterv1.Cluster, machine *clusterv1.Machine) error {
+func (c Client) Delete(ctx context.Context, request *DeleteRequest) error {
+	if request.ProviderID == "" {
+		klog.Warningf("can not delete  machine %s, providerID not set", request.MachineID)
+		return fmt.Errorf("machine %s has not been created", request.MachineID)
+	}
+
+	// Release MAAS machine
+	releaseArgs := gomaasapi.ReleaseMachinesArgs{SystemIDs: []string{request.ProviderID}}
+	if err := c.Controller.ReleaseMachines(releaseArgs); err != nil {
+		klog.Warningf("error releasing machine %s (%s): %v", request.MachineID, request.ProviderID, err)
+		return nil
+	}
+
 	return nil
 }
 
