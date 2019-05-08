@@ -28,7 +28,7 @@ func init() {
 		NewWebhookBuilder().
 		Name(builderName+".cluster.k8s.io").
 		Path("/"+builderName).
-		Validating().
+		Mutating().
 		Operations(admissionregistrationv1beta1.Create, admissionregistrationv1beta1.Delete).
 		FailurePolicy(admissionregistrationv1beta1.Fail).
 		ForType(&clusterv1.Machine{})
