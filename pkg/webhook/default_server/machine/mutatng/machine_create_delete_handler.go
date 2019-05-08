@@ -18,14 +18,17 @@ package mutatng
 
 import (
 	"context"
+	"fmt"
 	"net/http"
-
-	"k8s.io/klog"
+	"os"
 
 	"github.com/cattlek8s/cluster-api-provider-generic/pkg/apis/generic/v1alpha1"
 	"github.com/davidewatson/cluster-api-webhooks-maas/pkg/maas"
+	//corev1 "k8s.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
+	"sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/runtime/inject"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission/types"
@@ -48,19 +51,70 @@ type MachineCreateDeleteHandler struct {
 	Decoder types.Decoder
 
 	// MAASClient manages MAAS machines (e.g. allocate, deploy, release, etc.)
-	MAASClient maas.Client
+	MAASClient *maas.Client
+
+	// TODO: Replace Client in this struct with this
+	MachinesGetter client.Client
+}
+
+const (
+	apiURLEnv     = "MAAS_API_URL"
+	apiVersionEnv = "MAAS_API_VERSION"
+	apiKeyEnv     = "MAAS_API_KEY"
+)
+
+// initMAASClient creates a MAAS Client and ClientSet for the webhook
+// TODO: This should be done within the managers main() function.
+func (h *MachineCreateDeleteHandler) initMAASClient() error {
+	if h.MAASClient != nil {
+		return nil
+	}
+
+	apiURL := os.Getenv(apiURLEnv)
+	apiVersion := os.Getenv(apiVersionEnv)
+	apiKey := os.Getenv(apiKeyEnv)
+	maasClient, err := maas.New(&maas.ClientParams{ApiURL: apiURL, ApiVersion: apiVersion, ApiKey: apiKey})
+	if err != nil {
+		fmt.Printf("Unable to create MAAS client for machine controller: %v", err)
+		os.Exit(1)
+	}
+
+	// Get a config to talk to the apiserver
+	fmt.Printf("setting up client for manageri\n")
+	cfg, err := config.GetConfig()
+	if err != nil {
+		fmt.Printf("unable to set up client config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create ClientSet for webhook
+	_, err = clientset.NewForConfig(cfg)
+	if err != nil {
+		fmt.Printf("Unable to get clientset for config: %v\n", err)
+		os.Exit(1)
+	}
+
+	h.MAASClient = &maasClient
+	h.MachinesGetter = nil //cs.ClusterV1alpha1()
+
+	return nil
 }
 
 func (h *MachineCreateDeleteHandler) mutatngMachineFn(ctx context.Context, obj *clusterv1.Machine) (bool, string, error) {
-	// TODO: Verify that ProviderID is not nil and remove this.
-	obj.Spec.ProviderID = &obj.Name
+	if err := h.initMAASClient(); err != nil {
+		panic("Unable to configure webhook")
+	}
 
-	klog.Infof("Handling create or delete for %v\n", *obj.Spec.ProviderID)
-
-	_, err := h.MAASClient.Create(ctx, &v1alpha1.MachineCreateRequest{MachineID: *obj.Spec.ProviderID})
+	response, err := h.MAASClient.Create(ctx, &v1alpha1.MachineCreateRequest{MachineID: obj.Name})
 	if err != nil {
 		return false, "webhook error prevents admission", err
 	}
+
+	obj.Spec.ProviderID = response.ProviderID
+	// TODO: With the commented out code below we get this error:
+	// > Error from server (InternalError): error when creating "config/samples/cluster_v1alpha1_machine.yaml": Internal error occurred: Internal error occurred: jsonpatch add operation does not apply: doc is missing path: "/status/addresses"
+	//obj.Status.Addresses = make([]corev1.NodeAddress, 1)
+	//obj.Status.Addresses[0] = corev1.NodeAddress{Type: corev1.NodeInternalIP, Address: response.IPAddress}
 
 	return true, "allowed to be admitted", nil
 }
@@ -75,12 +129,19 @@ func (h *MachineCreateDeleteHandler) Handle(ctx context.Context, req types.Reque
 	if err != nil {
 		return admission.ErrorResponse(http.StatusBadRequest, err)
 	}
+	copy := obj.DeepCopy()
 
-	allowed, reason, err := h.mutatngMachineFn(ctx, obj)
+	allowed, reason, err := h.mutatngMachineFn(ctx, copy)
 	if err != nil {
 		return admission.ErrorResponse(http.StatusInternalServerError, err)
 	}
-	return admission.ValidationResponse(allowed, reason)
+	if !allowed {
+		return admission.ValidationResponse(allowed, reason)
+	}
+
+	res := admission.PatchResponse(obj, copy)
+	fmt.Printf("res %v\n", res)
+	return res
 }
 
 var _ inject.Client = &MachineCreateDeleteHandler{}
