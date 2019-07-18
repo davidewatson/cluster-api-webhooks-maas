@@ -41,3 +41,16 @@ rules:
   - update
   - patch
   - delete
+- apiGroups:
+  - cluster.k8s.io
+  resources:
+  - clusters
+  - machines
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete

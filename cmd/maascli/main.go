@@ -7,13 +7,10 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/klog"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clusterv1 "sigs.k8s.io/cluster-api/pkg/apis/cluster/v1alpha1"
+	"github.com/cattlek8s/cluster-api-provider-generic/pkg/apis/generic/v1alpha1"
+	"github.com/davidewatson/cluster-api-webhooks-maas/pkg/maas"
 	"sigs.k8s.io/cluster-api/pkg/client/clientset_generated/clientset"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-
-	"github.com/davidewatson/cluster-api-webhooks-maas/pkg/maas"
 )
 
 const (
@@ -56,7 +53,7 @@ func main() {
 		klog.Fatalf("Failed to create MAAS client: %v\n", err)
 	}
 
-	err = client.Create(context.TODO(), nil, &clusterv1.Machine{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: corev1.NamespaceDefault}})
+	_, err = client.Create(context.TODO(), &v1alpha1.MachineCreateRequest{MachineID: fmt.Sprintf("%s-%s", "cluster1", "machine1")})
 	if err != nil {
 		klog.Fatalf("Failed to create Machine: %v\n", err)
 	}
